@@ -47,14 +47,14 @@ const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v
 const safeNum = (v: any, def = 0) => (Number.isFinite(v) ? (v as number) : def)
 
 const DEFAULTS: Required<MeterConfig> = {
-  stationMaxKW: 120,
-  packVoltageMinV: 350,
-  packVoltageMaxV: 800,
+  stationMaxKW: 11,
+  packVoltageMinV: 184,
+  packVoltageMaxV: 276,
   socStartPct: 30,
   samplePeriodSec: 5,
-  noiseKW: 0.5,
+  noiseKW: 0.2,
   virtualCapacityKWh: 60,
-  offeredCurrentA: 32,
+  offeredCurrentA: 16,
 }
 
 function localKey(k: PersistKey) {

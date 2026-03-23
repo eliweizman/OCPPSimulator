@@ -146,8 +146,10 @@ export function createMeterModel(cpId: string, ctx: Context, cfgPartial?: Partia
     if (st.socPct < 100) pKW = Math.max(pKW, 2)
     // Apply external limit, if any
     if (limitKW != null && Number.isFinite(limitKW)) pKW = Math.min(pKW, Math.max(0, limitKW))
-    // Apply jitter
-    pKW = Math.max(0, pKW + jitterKW(cfg.noiseKW))
+    // Apply jitter only when not suspended by external limit
+    if (!(limitKW != null && limitKW <= 0)) {
+      pKW = Math.max(0, pKW + jitterKW(cfg.noiseKW))
+    }
 
     // If suspended (limit 0) or soc 100 stop power
     if (st.socPct >= 100 || pKW <= 0.0001) pKW = 0

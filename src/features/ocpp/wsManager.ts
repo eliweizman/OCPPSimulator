@@ -407,6 +407,61 @@ export function connectWs(
                     errorCode: 'NoError',
                   });
                 },
+                applyChargingProfile: (connectorId: number, profile: any) => {
+                  try {
+                    const meter = getMeterForCp(id);
+                    if (!meter) return;
+                    const schedule = profile?.chargingSchedule;
+                    if (!schedule) return;
+                    const periods = schedule.chargingSchedulePeriod;
+                    if (!Array.isArray(periods) || periods.length === 0) return;
+                    const unit = String(schedule.chargingRateUnit || 'A').toUpperCase();
+                    // Find the currently applicable period
+                    // For Absolute profiles with a single period, just use the first
+                    // For recurring/multiple periods, find the one matching now
+                    let limitValue = periods[0].limit;
+                    if (periods.length > 1 && schedule.startSchedule) {
+                      const schedStart = new Date(schedule.startSchedule).getTime();
+                      const now = Date.now();
+                      const duration = schedule.duration || 86400;
+                      let elapsed = ((now - schedStart) / 1000) % duration;
+                      if (elapsed < 0) elapsed += duration;
+                      // Find the last period whose startPeriod <= elapsed
+                      for (let i = periods.length - 1; i >= 0; i--) {
+                        if (periods[i].startPeriod <= elapsed) {
+                          limitValue = periods[i].limit;
+                          break;
+                        }
+                      }
+                    }
+                    let limitKW: number;
+                    if (unit === 'W') {
+                      limitKW = limitValue / 1000;
+                    } else if (unit === 'A') {
+                      // Convert amps to kW using current voltage or nominal
+                      const st = meter.getState(connectorId || 1);
+                      const voltage = st.voltageV > 50 ? st.voltageV : 230;
+                      limitKW = (limitValue * voltage) / 1000;
+                    } else {
+                      limitKW = limitValue; // assume kW
+                    }
+                    // Special case: limit 0A means full stop
+                    if (limitValue <= 0) limitKW = 0;
+                    meter.applyLimitKW(limitKW, connectorId || 1);
+                    console.log(`[${id}] ChargingProfile applied: connector=${connectorId}, limit=${limitValue}${unit} → ${limitKW.toFixed(1)}kW`);
+                  } catch (err) {
+                    console.error(`[${id}] Failed to apply charging profile:`, err);
+                  }
+                },
+                clearChargingProfile: () => {
+                  try {
+                    const meter = getMeterForCp(id);
+                    if (meter) {
+                      meter.applyLimitKW(undefined, 1);
+                      console.log(`[${id}] ChargingProfile cleared — limit removed`);
+                    }
+                  } catch {}
+                },
               } as any);
               if (reply) {
                 client.ws.send(JSON.stringify(reply));

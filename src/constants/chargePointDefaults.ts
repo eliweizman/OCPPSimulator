@@ -16,7 +16,7 @@ export const DEFAULT_DEVICE_SETTINGS: DeviceSettings = {
   cableLock: [true, true],
   hasRfid: true,
   hasDisplay: true,
-  timezone: 'Europe/Istanbul',
+  timezone: 'Asia/Jerusalem',
   phaseRotation: 'RST',
   pricePerKwh: 0.25,
   batteryStartPercent: 30,

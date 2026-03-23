@@ -58,14 +58,14 @@ const ocppSlice = createSlice({
         const connectors: Connector[] = Array.from({ length: numConnectors }, (_, i) => ({
           id: i + 1,
           status: 'Available' as const,
-          idTag: i === 0 ? 'DEMO1234' : undefined, // default idTag for first connector
+          idTag: i === 0 ? 'NFC_CARD_001' : undefined, // default idTag for first connector
         }))
         return {
           payload: {
             id,
             label: partial?.label || `CP ${id}`,
             config: partial?.config || {
-              csmsUrl: 'ws://localhost:9000/ocpp/',
+              csmsUrl: 'ws://centerbeam.proxy.rlwy.net:10941/ocpp/',
               cpId: `SIM_${id}`,
               protocol: 'ocpp1.6',
             },

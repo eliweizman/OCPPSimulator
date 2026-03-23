@@ -3,12 +3,13 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Separator } from '@/components/ui/separator';
+import { Input } from '@/components/ui/input';
 import { useOcppConnection } from '@/features/ocpp/hooks';
 import type { ChargePoint } from '@/features/ocpp/ocppSlice';
 import { setTransactionId, updateConnectorStatus } from '@/features/ocpp/ocppSlice';
 import { useBatteryState } from '@/hooks/useBatteryState';
 import { getMeterForCp } from '@/services/meterModel';
-import { Plug, Power, Activity, Lock } from 'lucide-react';
+import { Plug, Power, Activity, Lock, CreditCard } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { useDispatch } from 'react-redux';
@@ -34,6 +35,8 @@ export const ControlsPanel = ({ cp, deviceSettings }: ControlsPanelProps) => {
   const { beginCharge, endCharge, setMeterStart } = useBatteryState();
   const numConnectors = deviceSettings?.connectors || 1;
   const [selectedConnectorId, setSelectedConnectorId] = useState(1);
+  const [nfcTag, setNfcTag] = useState('NFC_CARD_001');
+  const [selectedStatus, setSelectedStatus] = useState('Available');
 
   const form = useForm<PanelForm>({
     defaultValues: {
@@ -70,17 +73,17 @@ export const ControlsPanel = ({ cp, deviceSettings }: ControlsPanelProps) => {
       action: 'StatusNotification',
       payload: {
         connectorId,
-        status: 'Available',
+        status: selectedStatus,
         errorCode: 'NoError',
       },
     });
-    dispatch(updateConnectorStatus({ id: cp.id, connectorId, status: 'Available' }));
+    dispatch(updateConnectorStatus({ id: cp.id, connectorId, status: selectedStatus }));
   };
 
   const onAuthorize = () => {
     call.mutate({
       action: 'Authorize',
-      payload: { idTag: cp.runtime?.connectors?.find(c => c.id === connectorId)?.idTag || 'DEMO1234' },
+      payload: { idTag: nfcTag || 'NFC_CARD_001' },
     });
   };
 
@@ -89,14 +92,14 @@ export const ControlsPanel = ({ cp, deviceSettings }: ControlsPanelProps) => {
     try {
       await call.mutateAsync({
         action: 'Authorize',
-        payload: { idTag: cp.runtime?.connectors?.find(c => c.id === connectorId)?.idTag || 'DEMO1234' },
+        payload: { idTag: nfcTag || 'NFC_CARD_001' },
       });
     } catch {}
     const res = await call.mutateAsync({
       action: 'StartTransaction',
       payload: {
         connectorId,
-        idTag: cp.runtime?.connectors?.find(c => c.id === connectorId)?.idTag || 'DEMO1234',
+        idTag: nfcTag || 'NFC_CARD_001',
         meterStart,
         timestamp: new Date().toISOString(),
       },
@@ -140,7 +143,7 @@ export const ControlsPanel = ({ cp, deviceSettings }: ControlsPanelProps) => {
       action: 'StopTransaction',
       payload: {
         transactionId: tx,
-        idTag: cp.runtime?.connectors?.find(c => c.id === connectorId)?.idTag || 'DEMO1234',
+        idTag: nfcTag || 'NFC_CARD_001',
         meterStop,
         timestamp: new Date().toISOString(),
         reason: 'Local',
@@ -201,6 +204,64 @@ export const ControlsPanel = ({ cp, deviceSettings }: ControlsPanelProps) => {
         </div>
 
         <div className='space-y-4'>
+          {/* NFC / RFID Tag */}
+          <div className='space-y-2.5'>
+            <div className='flex items-center gap-2 text-xs font-medium text-muted-foreground uppercase tracking-wide'>
+              <CreditCard className='h-3.5 w-3.5' />
+              NFC / RFID Tag
+            </div>
+            <div className='flex items-center gap-2'>
+              <Input
+                value={nfcTag}
+                onChange={(e) => setNfcTag(e.target.value)}
+                placeholder='Enter NFC card ID (e.g. 04A3B2C1D2E3F4)'
+                className='flex-1 h-9 text-sm font-mono'
+              />
+              <Button
+                size='sm'
+                variant='outline'
+                onClick={onAuthorize}
+                disabled={!connected}
+                className='h-9 text-xs sm:text-sm whitespace-nowrap'
+              >
+                Tap Card
+              </Button>
+            </div>
+          </div>
+
+          <Separator />
+
+          {/* Status Notification */}
+          <div className='space-y-2.5'>
+            <div className='flex items-center gap-2 text-xs font-medium text-muted-foreground uppercase tracking-wide'>
+              <Activity className='h-3.5 w-3.5' />
+              Connector Status
+            </div>
+            <div className='flex items-center gap-2'>
+              <Select value={selectedStatus} onValueChange={setSelectedStatus}>
+                <SelectTrigger className='w-48'>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {['Available', 'Preparing', 'Charging', 'SuspendedEV', 'SuspendedEVSE', 'Finishing', 'Reserved', 'Unavailable', 'Faulted'].map(s => (
+                    <SelectItem key={s} value={s}>{s}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Button
+                size='sm'
+                variant='outline'
+                onClick={onStatus}
+                disabled={!connected}
+                className='h-9 text-xs sm:text-sm'
+              >
+                Send Status
+              </Button>
+            </div>
+          </div>
+
+          <Separator />
+
           <div className='space-y-2.5'>
             <div className='flex items-center gap-2 text-xs font-medium text-muted-foreground uppercase tracking-wide'>
               <Activity className='h-3.5 w-3.5' />
@@ -223,24 +284,6 @@ export const ControlsPanel = ({ cp, deviceSettings }: ControlsPanelProps) => {
                 className='h-9 text-xs sm:text-sm'
               >
                 Heartbeat
-              </Button>
-              <Button
-                size='sm'
-                variant='outline'
-                onClick={onStatus}
-                disabled={!connected}
-                className='h-9 text-xs sm:text-sm'
-              >
-                Status
-              </Button>
-              <Button
-                size='sm'
-                variant='outline'
-                onClick={onAuthorize}
-                disabled={!connected}
-                className='h-9 text-xs sm:text-sm'
-              >
-                Authorize
               </Button>
             </div>
           </div>

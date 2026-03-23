@@ -43,6 +43,15 @@ const useOcppActions = (cp: ChargePoint) => {
         payload: { idTag: cp.runtime?.idTag || 'DEMO1234' },
       })
       .catch(() => {});
+    // Spec: transition to Preparing before StartTransaction
+    await call.mutateAsync({
+      action: 'StatusNotification',
+      payload: {
+        connectorId: cp.runtime?.connectorId || 1,
+        status: 'Preparing',
+        errorCode: 'NoError',
+      },
+    });
     const res = await call.mutateAsync({
       action: 'StartTransaction',
       payload: {
@@ -98,6 +107,15 @@ const useOcppActions = (cp: ChargePoint) => {
       payload: {
         connectorId: cp.runtime?.connectorId || 1,
         status: 'Finishing',
+        errorCode: 'NoError',
+      },
+    });
+    // Spec: transition back to Available after Finishing
+    await call.mutateAsync({
+      action: 'StatusNotification',
+      payload: {
+        connectorId: cp.runtime?.connectorId || 1,
+        status: 'Available',
         errorCode: 'NoError',
       },
     });

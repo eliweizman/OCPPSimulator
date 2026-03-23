@@ -22,6 +22,11 @@ export function useChargingStatus(cpId: string) {
 
   const { chargingData, isCharging } = useMemo(() => {
     const frames = framesQuery.data || []
+    // Build a set of connector IDs with active transactions
+    const activeConnectors = new Set<number>()
+    for (const conn of (cp?.runtime?.connectors || [])) {
+      if (conn.transactionId != null) activeConnectors.add(conn.id)
+    }
     
     // Find MeterValues CALLs for each connector
     const meterValuesCalls = frames.filter(
@@ -30,6 +35,11 @@ export function useChargingStatus(cpId: string) {
     
     const data: ChargingDataVM[] = []
     for (let connectorId = 1; connectorId <= numConnectors; connectorId++) {
+      // Only show meter data for connectors with active transactions
+      if (!activeConnectors.has(connectorId)) {
+        data.push({ connectorId, transactionId: undefined, meterValue: [] })
+        continue
+      }
       const call = meterValuesCalls.find((f: OCPPFrame) => {
         const payload = f.raw?.[3] as { connectorId?: number } | undefined
         return payload?.connectorId === connectorId

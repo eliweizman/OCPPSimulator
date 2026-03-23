@@ -137,7 +137,7 @@ export function connectWs(
             30,
             ocppConfig['BootNotification.intervalHint'] || 60
           );
-          const sendBootNotification = () => {
+          const sendBootNotification = async () => {
             try {
               const state = store.getState();
               const cp = state.ocpp.items[id];
@@ -150,10 +150,24 @@ export function connectWs(
                 ...(cp?.chargePointConfig?.deviceSettings || {}),
                 ...(storedDeviceSettings || {}),
               });
-              callAction(id, 'BootNotification', {
+              const res = await callAction(id, 'BootNotification', {
                 chargePointVendor: 'EVS-Sim',
                 chargePointModel: deviceSettings.deviceName || 'Browser-CP',
-              }).catch(() => {});
+              });
+              // Per OCPP 1.6 spec: if Accepted, stop retrying
+              if (res?.status === 'Accepted') {
+                const bn = bootNotificationIntervals.get(id);
+                if (bn) { clearInterval(bn); bootNotificationIntervals.delete(id); }
+                // Use response interval for heartbeat if provided
+                if (res.interval && Number(res.interval) > 0) {
+                  const prevHb = heartbeatIntervals.get(id);
+                  if (prevHb) clearInterval(prevHb);
+                  const newHbHandle = setInterval(() => {
+                    try { callAction(id, 'Heartbeat', {}).catch(() => {}); } catch {}
+                  }, Number(res.interval) * 1000);
+                  heartbeatIntervals.set(id, newHbHandle);
+                }
+              }
             } catch {}
           };
           sendBootNotification();
@@ -404,6 +418,12 @@ export function connectWs(
                   await callAction(id, 'StatusNotification', {
                     connectorId: conn,
                     status: 'Finishing',
+                    errorCode: 'NoError',
+                  });
+                  // Spec: transition back to Available after Finishing
+                  await callAction(id, 'StatusNotification', {
+                    connectorId: conn,
+                    status: 'Available',
                     errorCode: 'NoError',
                   });
                 },

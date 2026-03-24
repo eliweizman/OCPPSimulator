@@ -181,15 +181,18 @@ export const ControlsPanel = ({ cp, deviceSettings }: ControlsPanelProps) => {
       },
     });
     dispatch(setTransactionId({ id: cp.id, connectorId, transactionId: undefined }));
+    // Cable is still plugged → go to Preparing (not Available)
+    // Available only when user physically unplugs the cable
+    const nextStatus = cablePlugged ? 'Preparing' : 'Available';
     await call.mutateAsync({
       action: 'StatusNotification',
       payload: {
         connectorId,
-        status: 'Available',
+        status: nextStatus,
         errorCode: 'NoError',
       },
     });
-    dispatch(updateConnectorStatus({ id: cp.id, connectorId, status: 'Available' }));
+    dispatch(updateConnectorStatus({ id: cp.id, connectorId, status: nextStatus }));
     endCharge();
   };
 

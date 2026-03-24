@@ -11,7 +11,7 @@ import {
   parseOCPPFrame,
   uuidv4,
 } from '../../utils/ocpp';
-import { setTransactionId, updateConnectorStatus } from './ocppSlice';
+import { setCablePlugged, setTransactionId, updateConnectorStatus } from './ocppSlice';
 import {
   loadDeviceSettings,
   loadOcppConfiguration,
@@ -480,13 +480,14 @@ export function connectWs(
                     errorCode: 'NoError',
                   });
                   store.dispatch(updateConnectorStatus({ id, connectorId: conn, status: 'Finishing' }));
-                  // Spec: transition back to Available after Finishing
+                  // Cable is still plugged in after remote stop → go to Preparing, not Available
+                  // Available only happens when user physically unplugs the cable
                   await callAction(id, 'StatusNotification', {
                     connectorId: conn,
-                    status: 'Available',
+                    status: 'Preparing',
                     errorCode: 'NoError',
                   });
-                  store.dispatch(updateConnectorStatus({ id, connectorId: conn, status: 'Available' }));
+                  store.dispatch(updateConnectorStatus({ id, connectorId: conn, status: 'Preparing' }));
                 },
                 applyChargingProfile: (connectorId: number, profile: any) => {
                   try {

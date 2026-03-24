@@ -196,10 +196,15 @@ export function createMeterModel(cpId: string, ctx: Context, cfgPartial?: Partia
       if (meas.includes('Power.Active.Import')) push('Power.Active.Import', 'W', Math.max(0, Number((st.powerKW * 1000).toFixed(0))))
       if (meas.includes('Current.Import')) push('Current.Import', 'A', Math.max(0, Number(st.currentA.toFixed(3))))
       if (meas.includes('Current.Offered')) {
-        const offered = Math.min(
+        let offered = Math.min(
           Math.max(0, cfg.offeredCurrentA),
           (cfg.stationMaxKW * 1000) / Math.max(1, st.voltageV || cfg.packVoltageMaxV)
         )
+        // Cap offered current by charging profile limit
+        if (session.limitKW != null && Number.isFinite(session.limitKW)) {
+          const limitA = (session.limitKW * 1000) / Math.max(1, st.voltageV || cfg.packVoltageMaxV)
+          offered = Math.min(offered, Math.max(0, limitA))
+        }
         push('Current.Offered', 'A', Number(offered.toFixed(3)))
       }
       if (meas.includes('Voltage')) push('Voltage', 'V', Math.max(0, Number(st.voltageV.toFixed(2))))

@@ -451,14 +451,15 @@ export function connectWs(
                 stopLocalFlow: async ({ transactionId }) => {
                   const state = store.getState();
                   const cp = state.ocpp.items[id];
-                  const conn = cp?.runtime?.activeConnectorId ?? 1;
-                  const connObj = cp?.runtime?.connectors?.find((c: any) => c.id === conn);
+                  // Find the connector that owns this transaction (not just activeConnectorId)
+                  const connObj = cp?.runtime?.connectors?.find((c: any) => c.transactionId === transactionId);
+                  const conn = connObj?.id ?? cp?.runtime?.activeConnectorId ?? 1;
                   const tag = connObj?.idTag ?? 'DEMO1234';
                   let meterStop = 0
+                  const m = getMeterForCp(id)
                   try {
-                    const m = getMeterForCp(id)
                     await m?.tick()
-                    const st = m?.getState()
+                    const st = m?.getState(conn)
                     meterStop = Math.floor(Math.max(0, Number(st?.energyWh || 0)))
                   } catch {}
                   await callAction(id, 'StopTransaction', {
@@ -468,6 +469,8 @@ export function connectWs(
                     timestamp: new Date().toISOString(),
                     reason: 'Remote',
                   });
+                  // Stop the meter model explicitly (don't rely on CALLRESULT handler)
+                  try { m?.stop(); } catch {}
                   store.dispatch(
                     setTransactionId({ id, connectorId: conn, transactionId: undefined })
                   );

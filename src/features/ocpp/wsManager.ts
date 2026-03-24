@@ -167,6 +167,51 @@ export function connectWs(
                   }, Number(res.interval) * 1000);
                   heartbeatIntervals.set(id, newHbHandle);
                 }
+                // --- Reconnection recovery ---
+                // If Redux still has an active transaction on any connector,
+                // resume the meter and notify the CSMS of the correct status.
+                try {
+                  const curState = store.getState();
+                  const curCp = curState.ocpp.items[id];
+                  const connectors = curCp?.runtime?.connectors || [];
+                  for (const c of connectors) {
+                    if (c.transactionId != null) {
+                      // Re-send StatusNotification for this connector so CSMS
+                      // knows the charger is still charging
+                      await callAction(id, 'StatusNotification', {
+                        connectorId: c.id,
+                        status: 'Charging',
+                        errorCode: 'NoError',
+                      });
+                      // Restart the meter for this transaction
+                      const meterInst = getMeterForCp(id);
+                      if (meterInst) {
+                        const ds = normalizeDeviceSettings({
+                          ...(curCp?.chargePointConfig?.deviceSettings || {}),
+                          ...(loadDeviceSettings(id) || {}),
+                        });
+                        meterInst.start(
+                          c.transactionId,
+                          c.id,
+                          0, // meterStart: 0 means resume from persisted localStorage state
+                          ds.batteryStartPercent
+                        );
+                      }
+                      console.log(
+                        `[reconnect] Resumed tx ${c.transactionId} on connector ${c.id}`
+                      );
+                    } else {
+                      // No active tx — report current connector status
+                      await callAction(id, 'StatusNotification', {
+                        connectorId: c.id,
+                        status: c.status || 'Available',
+                        errorCode: 'NoError',
+                      });
+                    }
+                  }
+                } catch (recoverErr) {
+                  console.warn('[reconnect] Recovery error:', recoverErr);
+                }
               }
             } catch {}
           };
@@ -247,8 +292,8 @@ export function connectWs(
                       ? body.transactionId
                       : Math.floor(Math.random() * 100000);
                   // Update app runtime (idempotent)
-                  try { store.dispatch(setTransactionId({ id, transactionId: txid })); } catch {}
                   const conn = Number(p.payload?.connectorId) || (store.getState().ocpp.items[id]?.runtime?.connectorId ?? 1)
+                  try { store.dispatch(setTransactionId({ id, connectorId: conn, transactionId: txid })); } catch {}
                   const meterStart = Number(p.payload?.meterStart) || 0
                   console.log('Starting meter for transaction:', { txid, conn, meterStart, cpId: id })
                   const meter = getMeterForCp(id)
@@ -370,8 +415,9 @@ export function connectWs(
                 startLocalFlow: async ({ connectorId, idTag }) => {
                   const state = store.getState();
                   const cp = state.ocpp.items[id];
-                  const conn = connectorId ?? cp?.runtime?.connectorId ?? 1;
-                  const tag = idTag ?? cp?.runtime?.idTag ?? 'DEMO1234';
+                  const conn = connectorId ?? cp?.runtime?.activeConnectorId ?? 1;
+                  const connObj = cp?.runtime?.connectors?.find((c: any) => c.id === conn);
+                  const tag = idTag ?? connObj?.idTag ?? 'DEMO1234';
                   try {
                     await callAction(id, 'Authorize', { idTag: tag });
                   } catch {}
@@ -391,13 +437,14 @@ export function connectWs(
                     typeof res?.transactionId === 'number'
                       ? res.transactionId
                       : Math.floor(Math.random() * 100000);
-                  store.dispatch(setTransactionId({ id, transactionId: txid }));
+                  store.dispatch(setTransactionId({ id, connectorId: conn, transactionId: txid }));
                 },
                 stopLocalFlow: async ({ transactionId }) => {
                   const state = store.getState();
                   const cp = state.ocpp.items[id];
-                  const conn = cp?.runtime?.connectorId ?? 1;
-                  const tag = cp?.runtime?.idTag ?? 'DEMO1234';
+                  const conn = cp?.runtime?.activeConnectorId ?? 1;
+                  const connObj = cp?.runtime?.connectors?.find((c: any) => c.id === conn);
+                  const tag = connObj?.idTag ?? 'DEMO1234';
                   let meterStop = 0
                   try {
                     const m = getMeterForCp(id)
@@ -413,7 +460,7 @@ export function connectWs(
                     reason: 'Remote',
                   });
                   store.dispatch(
-                    setTransactionId({ id, transactionId: undefined })
+                    setTransactionId({ id, connectorId: conn, transactionId: undefined })
                   );
                   await callAction(id, 'StatusNotification', {
                     connectorId: conn,

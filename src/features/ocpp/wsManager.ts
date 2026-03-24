@@ -176,6 +176,8 @@ export function connectWs(
                   const connectors = curCp?.runtime?.connectors || [];
                   for (const c of connectors) {
                     if (c.transactionId != null) {
+                      // Update local Redux state FIRST so UI reacts immediately
+                      store.dispatch(updateConnectorStatus({ id, connectorId: c.id, status: 'Charging' }));
                       // Re-send StatusNotification for this connector so CSMS
                       // knows the charger is still charging
                       await callAction(id, 'StatusNotification', {
@@ -183,8 +185,6 @@ export function connectWs(
                         status: 'Charging',
                         errorCode: 'NoError',
                       });
-                      // Update local Redux state to match
-                      store.dispatch(updateConnectorStatus({ id, connectorId: c.id, status: 'Charging' }));
                       // Restart the meter for this transaction
                       const meterInst = getMeterForCp(id);
                       if (meterInst) {
@@ -428,6 +428,7 @@ export function connectWs(
                     status: 'Preparing',
                     errorCode: 'NoError',
                   });
+                  store.dispatch(updateConnectorStatus({ id, connectorId: conn, status: 'Preparing' }));
                   const meterStart = Math.floor(1000 + Math.random() * 1000);
                   const res = await callAction(id, 'StartTransaction', {
                     connectorId: conn,
@@ -440,6 +441,12 @@ export function connectWs(
                       ? res.transactionId
                       : Math.floor(Math.random() * 100000);
                   store.dispatch(setTransactionId({ id, connectorId: conn, transactionId: txid }));
+                  await callAction(id, 'StatusNotification', {
+                    connectorId: conn,
+                    status: 'Charging',
+                    errorCode: 'NoError',
+                  });
+                  store.dispatch(updateConnectorStatus({ id, connectorId: conn, status: 'Charging' }));
                 },
                 stopLocalFlow: async ({ transactionId }) => {
                   const state = store.getState();
@@ -469,12 +476,14 @@ export function connectWs(
                     status: 'Finishing',
                     errorCode: 'NoError',
                   });
+                  store.dispatch(updateConnectorStatus({ id, connectorId: conn, status: 'Finishing' }));
                   // Spec: transition back to Available after Finishing
                   await callAction(id, 'StatusNotification', {
                     connectorId: conn,
                     status: 'Available',
                     errorCode: 'NoError',
                   });
+                  store.dispatch(updateConnectorStatus({ id, connectorId: conn, status: 'Available' }));
                 },
                 applyChargingProfile: (connectorId: number, profile: any) => {
                   try {

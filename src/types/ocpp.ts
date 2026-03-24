@@ -44,6 +44,7 @@ export type ConnectionStatus = 'disconnected' | 'connected' | 'charging' | 'idle
 export interface Connector {
   id: number;
   status: 'Available' | 'Preparing' | 'Charging' | 'SuspendedEVSE' | 'SuspendedEV' | 'Finishing' | 'Reserved' | 'Unavailable' | 'Faulted';
+  cablePlugged?: boolean;
   idTag?: string;
   transactionId?: number;
   errorCode?: string;

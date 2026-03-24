@@ -144,6 +144,13 @@ const ocppSlice = createSlice({
         if (connector) Object.assign(connector, action.payload.updates)
       }
     },
+    setCablePlugged(state, action: PayloadAction<{ id: string; connectorId: number; plugged: boolean }>) {
+      const cp = state.items[action.payload.id]
+      if (cp && cp.runtime?.connectors) {
+        const connector = cp.runtime.connectors.find(c => c.id === action.payload.connectorId)
+        if (connector) connector.cablePlugged = action.payload.plugged
+      }
+    },
     updateDeviceSettings(state, action: PayloadAction<{ id: string; deviceSettings: Partial<DeviceSettings> }>) {
       const cp = state.items[action.payload.id]
       if (cp && cp.chargePointConfig) {
@@ -190,6 +197,7 @@ export const {
   updateOcppConfiguration,
   updateConnectorStatus,
   updateConnector,
+  setCablePlugged,
 } = ocppSlice.actions
 
 export default ocppSlice.reducer

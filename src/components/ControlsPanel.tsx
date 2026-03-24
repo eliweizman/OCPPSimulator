@@ -6,10 +6,10 @@ import { Separator } from '@/components/ui/separator';
 import { Input } from '@/components/ui/input';
 import { useOcppConnection } from '@/features/ocpp/hooks';
 import type { ChargePoint } from '@/features/ocpp/ocppSlice';
-import { setTransactionId, updateConnectorStatus } from '@/features/ocpp/ocppSlice';
+import { setTransactionId, updateConnectorStatus, setCablePlugged } from '@/features/ocpp/ocppSlice';
 import { useBatteryState } from '@/hooks/useBatteryState';
 import { getMeterForCp } from '@/services/meterModel';
-import { Plug, Power, Activity, Lock, CreditCard } from 'lucide-react';
+import { Plug, PlugZap, Power, Activity, Lock, CreditCard, Unplug } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { useDispatch } from 'react-redux';
@@ -173,6 +173,106 @@ export const ControlsPanel = ({ cp, deviceSettings }: ControlsPanelProps) => {
     });
   };
 
+  const connector = cp.runtime?.connectors?.find(c => c.id === connectorId);
+  const cablePlugged = connector?.cablePlugged ?? false;
+  const hasActiveTx = !!connector?.transactionId;
+  const plugAndPlay = cp.chargePointConfig?.ocppConfig?.AllowOfflineTxForUnknownId ?? false;
+
+  const onPlugCable = async () => {
+    // Mark cable as plugged in Redux
+    dispatch(setCablePlugged({ id: cp.id, connectorId, plugged: true }));
+
+    // OCPP spec: Available → Preparing when cable is connected
+    await call.mutateAsync({
+      action: 'StatusNotification',
+      payload: {
+        connectorId,
+        status: 'Preparing',
+        errorCode: 'NoError',
+      },
+    });
+    dispatch(updateConnectorStatus({ id: cp.id, connectorId, status: 'Preparing' }));
+
+    // Plug & Play: auto-start transaction without waiting for RFID
+    if (plugAndPlay) {
+      const meterStart = Math.floor(1000 + Math.random() * 1000);
+      const idTag = nfcTag || 'NFC_CARD_001';
+      try {
+        await call.mutateAsync({
+          action: 'Authorize',
+          payload: { idTag },
+        });
+      } catch { /* continue even if auth fails in P&P mode */ }
+      const res = await call.mutateAsync({
+        action: 'StartTransaction',
+        payload: {
+          connectorId,
+          idTag,
+          meterStart,
+          timestamp: new Date().toISOString(),
+        },
+      });
+      const txid =
+        typeof (res as any)?.transactionId === 'number'
+          ? (res as any).transactionId
+          : Math.floor(Math.random() * 100000);
+      dispatch(setTransactionId({ id: cp.id, connectorId, transactionId: txid }));
+      await call.mutateAsync({
+        action: 'StatusNotification',
+        payload: {
+          connectorId,
+          status: 'Charging',
+          errorCode: 'NoError',
+        },
+      });
+      dispatch(updateConnectorStatus({ id: cp.id, connectorId, status: 'Charging' }));
+      setMeterStart(meterStart);
+      beginCharge(() => { onMeterValues(); });
+    }
+  };
+
+  const onUnplugCable = async () => {
+    // If there's an active transaction, stop it first (EV-side disconnect)
+    if (hasActiveTx) {
+      const tx = connector?.transactionId || 0;
+      let meterStop = 0;
+      try {
+        const m = getMeterForCp(cp.id);
+        await m?.tick();
+        const st = m?.getState(connectorId);
+        meterStop = Math.floor(Math.max(0, Number(st?.energyWh || 0)));
+      } catch {}
+      await call.mutateAsync({
+        action: 'StopTransaction',
+        payload: {
+          transactionId: tx,
+          idTag: nfcTag || 'NFC_CARD_001',
+          meterStop,
+          timestamp: new Date().toISOString(),
+          reason: 'EVDisconnected',
+        },
+      });
+      dispatch(setTransactionId({ id: cp.id, connectorId, transactionId: undefined }));
+      endCharge();
+    }
+
+    // OCPP spec: transition through Finishing → Available when cable removed
+    if (hasActiveTx || connector?.status === 'Charging' || connector?.status === 'SuspendedEV' || connector?.status === 'SuspendedEVSE') {
+      await call.mutateAsync({
+        action: 'StatusNotification',
+        payload: { connectorId, status: 'Finishing', errorCode: 'NoError' },
+      });
+      dispatch(updateConnectorStatus({ id: cp.id, connectorId, status: 'Finishing' }));
+    }
+
+    await call.mutateAsync({
+      action: 'StatusNotification',
+      payload: { connectorId, status: 'Available', errorCode: 'NoError' },
+    });
+    dispatch(updateConnectorStatus({ id: cp.id, connectorId, status: 'Available' }));
+    dispatch(setCablePlugged({ id: cp.id, connectorId, plugged: false }));
+  };
+
   return (
     <Card>
       <CardHeader>
@@ -301,7 +401,7 @@ export const ControlsPanel = ({ cp, deviceSettings }: ControlsPanelProps) => {
                 variant='secondary'
                 onClick={onStartTx}
                 disabled={
-                  !connected || !!cp.runtime?.connectors?.find(c => c.id === connectorId)?.transactionId
+                  !connected || !!cp.runtime?.connectors?.find(c => c.id === connectorId)?.transactionId || !cablePlugged
                 }
                 className='h-9 text-xs sm:text-sm'
               >
@@ -328,6 +428,53 @@ export const ControlsPanel = ({ cp, deviceSettings }: ControlsPanelProps) => {
                 StopTx
               </Button>
             </div>
+          </div>
+
+          <Separator />
+
+          {/* Cable Connection (physical simulation) */}
+          <div className='space-y-2.5'>
+            <div className='flex items-center gap-2 text-xs font-medium text-muted-foreground uppercase tracking-wide'>
+              <PlugZap className='h-3.5 w-3.5' />
+              Cable Connection
+              {cablePlugged && (
+                <Badge variant='default' className='ml-auto text-[10px] px-1.5 py-0 bg-green-600'>
+                  Plugged
+                </Badge>
+              )}
+              {plugAndPlay && (
+                <Badge variant='outline' className='text-[10px] px-1.5 py-0'>
+                  P&P
+                </Badge>
+              )}
+            </div>
+            <div className='grid grid-cols-2 gap-2 max-w-md'>
+              <Button
+                size='sm'
+                variant={cablePlugged ? 'outline' : 'default'}
+                onClick={onPlugCable}
+                disabled={!connected || cablePlugged}
+                className='h-9 text-xs sm:text-sm'
+              >
+                <PlugZap className='h-3.5 w-3.5 mr-1' />
+                Plug In Cable
+              </Button>
+              <Button
+                size='sm'
+                variant='destructive'
+                onClick={onUnplugCable}
+                disabled={!connected || !cablePlugged}
+                className='h-9 text-xs sm:text-sm'
+              >
+                <Unplug className='h-3.5 w-3.5 mr-1' />
+                Unplug Cable
+              </Button>
+            </div>
+            {plugAndPlay && (
+              <p className='text-[11px] text-muted-foreground'>
+                Plug &amp; Play enabled — charging starts automatically when cable is connected
+              </p>
+            )}
           </div>
 
           <Separator />

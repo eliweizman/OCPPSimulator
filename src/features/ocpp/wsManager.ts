@@ -11,7 +11,7 @@ import {
   parseOCPPFrame,
   uuidv4,
 } from '../../utils/ocpp';
-import { setTransactionId } from './ocppSlice';
+import { setTransactionId, updateConnectorStatus } from './ocppSlice';
 import {
   loadDeviceSettings,
   loadOcppConfiguration,
@@ -183,6 +183,8 @@ export function connectWs(
                         status: 'Charging',
                         errorCode: 'NoError',
                       });
+                      // Update local Redux state to match
+                      store.dispatch(updateConnectorStatus({ id, connectorId: c.id, status: 'Charging' }));
                       // Restart the meter for this transaction
                       const meterInst = getMeterForCp(id);
                       if (meterInst) {

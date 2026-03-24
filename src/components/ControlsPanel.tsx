@@ -80,11 +80,42 @@ export const ControlsPanel = ({ cp, deviceSettings }: ControlsPanelProps) => {
     dispatch(updateConnectorStatus({ id: cp.id, connectorId, status: selectedStatus }));
   };
 
-  const onAuthorize = () => {
-    call.mutate({
+  const onAuthorize = async () => {
+    // Real charger flow: if cable is plugged (Preparing) and no active tx,
+    // tapping RFID card triggers full Authorize → StartTransaction → Charging
+    const conn = cp.runtime?.connectors?.find(c => c.id === connectorId);
+    const isPreparing = cablePlugged && !conn?.transactionId;
+
+    await call.mutateAsync({
       action: 'Authorize',
       payload: { idTag: nfcTag || 'NFC_CARD_001' },
     });
+
+    if (isPreparing) {
+      // Auto-start transaction (same as real charger after RFID tap)
+      const meterStart = Math.floor(1000 + Math.random() * 1000);
+      const res = await call.mutateAsync({
+        action: 'StartTransaction',
+        payload: {
+          connectorId,
+          idTag: nfcTag || 'NFC_CARD_001',
+          meterStart,
+          timestamp: new Date().toISOString(),
+        },
+      });
+      const txid =
+        typeof (res as any)?.transactionId === 'number'
+          ? (res as any).transactionId
+          : Math.floor(Math.random() * 100000);
+      dispatch(setTransactionId({ id: cp.id, connectorId, transactionId: txid }));
+      await call.mutateAsync({
+        action: 'StatusNotification',
+        payload: { connectorId, status: 'Charging', errorCode: 'NoError' },
+      });
+      dispatch(updateConnectorStatus({ id: cp.id, connectorId, status: 'Charging' }));
+      setMeterStart(meterStart);
+      beginCharge(() => { onMeterValues(); });
+    }
   };
 
   const onStartTx = async () => {
